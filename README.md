@@ -1,1 +1,77 @@
-# remote-experiment
+# remote-run
+
+`remote-run` provides `rrun`, a lightweight CLI for local development
+when the GPU machine is remote. It syncs the current project to a configured
+remote directory with `rsync`, submits the command as a detached SSH job, and
+lets you inspect status and logs later.
+
+## Install
+
+```bash
+pip install -e .
+```
+
+or:
+
+```bash
+pipx install .
+```
+
+## Configure
+
+Create a project-local config:
+
+```bash
+rrun init
+```
+
+Edit `.rrun.toml`:
+
+```toml
+target = "user@gpu-server"
+remote_workdir = "/home/user/experiments/my-project"
+
+# port = 22
+# prelude = "source ~/miniconda3/etc/profile.d/conda.sh && conda activate train"
+
+# Additional rsync exclude patterns beyond built-in defaults and .gitignore.
+exclude = [
+  "data/",
+  "outputs/",
+]
+```
+
+During sync, `rrun` automatically uses the project root `.gitignore` when it
+exists. The `exclude` list is only for extra patterns that should not be synced
+to the remote workdir.
+
+## Use
+
+Sync only:
+
+```bash
+rrun sync
+```
+
+Sync and submit a background remote job:
+
+```bash
+rrun -- python train.py --epochs 10
+```
+
+The command prints a job id and exits locally. The remote process keeps running
+under `<remote_workdir>/.rrun/jobs/<job_id>/`.
+
+Inspect it later:
+
+```bash
+rrun status <job_id>
+rrun logs <job_id>
+rrun logs <job_id> -f
+```
+
+## Requirements
+
+The local and remote machines should both have `ssh`, `bash`, and `rsync`
+available. The first version does not require a remote daemon, tmux, a database,
+or a scheduler.
