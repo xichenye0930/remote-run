@@ -7,14 +7,34 @@ lets you inspect status and logs later.
 
 ## Install
 
+From a cloned checkout:
+
 ```bash
 pip install -e .
 ```
 
-or:
+or install it as an isolated CLI tool:
 
 ```bash
 pipx install .
+```
+
+Install directly from GitHub:
+
+```bash
+pip install "git+https://github.com/xichenye0930/remote-run.git"
+```
+
+or with `pipx`:
+
+```bash
+pipx install "git+https://github.com/xichenye0930/remote-run.git"
+```
+
+Verify the install:
+
+```bash
+rrun --help
 ```
 
 ## Configure
