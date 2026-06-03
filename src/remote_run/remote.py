@@ -10,6 +10,10 @@ import subprocess
 from .config import Config
 
 
+class RemoteOutputError(ValueError):
+    """Raised when a remote control command returns malformed output."""
+
+
 @dataclass(frozen=True)
 class JobStatus:
     job_id: str
@@ -26,10 +30,10 @@ def make_job_id() -> str:
 
 
 def build_ssh_command(config: Config, remote_script: str) -> list[str]:
-    cmd = ["ssh"]
+    cmd = ["ssh", "-o", "LogLevel=ERROR"]
     if config.port is not None:
         cmd.extend(["-p", str(config.port)])
-    cmd.extend([config.target, "bash", "-lc", remote_script])
+    cmd.extend([config.target, "bash", "-c", remote_script])
     return cmd
 
 
@@ -39,7 +43,11 @@ def submit_job(config: Config, command: list[str]) -> str:
 
     job_id = make_job_id()
     remote_script = build_submit_script(config, job_id, command)
-    subprocess.run(build_ssh_command(config, remote_script), check=True)
+    subprocess.run(
+        build_ssh_command(config, remote_script),
+        check=True,
+        stdout=subprocess.PIPE,
+    )
     return job_id
 
 
@@ -88,7 +96,7 @@ def fetch_status(config: Config, job_id: str) -> JobStatus:
         text=True,
         stdout=subprocess.PIPE,
     )
-    data = json.loads(result.stdout)
+    data = _parse_status_json(result.stdout)
     return JobStatus(
         job_id=job_id,
         state=data["state"],
@@ -136,6 +144,14 @@ def stream_logs(config: Config, job_id: str, follow: bool) -> int:
     return process.wait()
 
 
+def _parse_status_json(stdout: str) -> dict[str, object]:
+    for line in reversed(stdout.splitlines()):
+        candidate = line.strip()
+        if candidate.startswith("{") and candidate.endswith("}"):
+            return json.loads(candidate)
+    raise RemoteOutputError("remote status output did not contain JSON")
+
+
 def _command_script(prelude: str, command_line: str) -> str:
     lines = ["#!/usr/bin/env bash", "set -e"]
     if prelude.strip():
@@ -159,4 +175,3 @@ def _background_runner(job_dir: str) -> str:
 
 def _job_dir(config: Config, job_id: str) -> str:
     return f"{config.remote_workdir.rstrip('/')}/.rrun/jobs/{job_id}"
-

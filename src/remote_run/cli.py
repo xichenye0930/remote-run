@@ -6,7 +6,7 @@ import subprocess
 import sys
 
 from .config import CONFIG_FILE, ConfigError, load_config, sample_config
-from .remote import fetch_status, stream_logs, submit_job
+from .remote import RemoteOutputError, fetch_status, stream_logs, submit_job
 from .sync import sync_project
 
 
@@ -50,6 +50,9 @@ def main(argv: list[str] | None = None) -> int:
     except subprocess.CalledProcessError as exc:
         print(f"rrun: command failed with exit code {exc.returncode}", file=sys.stderr)
         return exc.returncode
+    except RemoteOutputError as exc:
+        print(f"rrun: {exc}", file=sys.stderr)
+        return 2
 
     parser.print_help()
     return 2

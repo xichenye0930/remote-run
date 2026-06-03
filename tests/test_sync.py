@@ -15,7 +15,13 @@ def test_build_rsync_command_includes_port_gitignore_and_excludes(tmp_path: Path
 
     cmd = build_rsync_command(tmp_path, config)
 
-    assert cmd[:5] == ["rsync", "-az", "--delete", "-e", "ssh -p 2222"]
+    assert cmd[:5] == [
+        "rsync",
+        "-az",
+        "--delete",
+        "-e",
+        "ssh -o LogLevel=ERROR -p 2222",
+    ]
     assert "--exclude=.git/" in cmd
     assert "--exclude-from" in cmd
     assert str(tmp_path / ".gitignore") in cmd

@@ -24,9 +24,12 @@ DEFAULT_EXCLUDES = (
 
 def build_rsync_command(project_root: Path, config: Config) -> list[str]:
     cmd = ["rsync", "-az", "--delete"]
+    ssh_command = ["ssh", "-o", "LogLevel=ERROR"]
 
     if config.port is not None:
-        cmd.extend(["-e", f"ssh -p {config.port}"])
+        ssh_command.extend(["-p", str(config.port)])
+
+    cmd.extend(["-e", " ".join(ssh_command)])
 
     for pattern in DEFAULT_EXCLUDES:
         cmd.append(f"--exclude={pattern}")
@@ -46,4 +49,3 @@ def build_rsync_command(project_root: Path, config: Config) -> list[str]:
 
 def sync_project(project_root: Path, config: Config) -> None:
     subprocess.run(build_rsync_command(project_root, config), check=True)
-
