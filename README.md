@@ -90,6 +90,18 @@ rrun logs <job_id>
 rrun logs <job_id> -f
 ```
 
+Cancel a running remote job:
+
+```bash
+rrun cancel <job_id>
+```
+
+If the job does not stop gracefully, force it:
+
+```bash
+rrun cancel <job_id> --force
+```
+
 ## Requirements
 
 The local and remote machines should both have `ssh`, `bash`, and `rsync`

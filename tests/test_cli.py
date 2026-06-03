@@ -75,6 +75,39 @@ def test_passthrough_syncs_then_submits(tmp_path: Path, monkeypatch, capsys) -> 
     assert capsys.readouterr().out.strip() == "job-1"
 
 
+def test_cancel_calls_remote_cancel(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".rrun.toml").write_text(
+        'target = "user@gpu"\nremote_workdir = "/remote/project"\n',
+        encoding="utf-8",
+    )
+    cancel_job = Mock(
+        return_value=type(
+            "Status",
+            (),
+            {
+                "job_id": "job-1",
+                "state": "cancelling",
+                "pid": "123",
+                "exit_code": None,
+                "started_at": None,
+                "ended_at": None,
+                "cancelled_at": "2026-01-01T00:00:00Z",
+            },
+        )()
+    )
+    monkeypatch.setattr(cli, "cancel_job", cancel_job)
+
+    exit_code = cli.main(["cancel", "job-1", "--force"])
+
+    assert exit_code == 0
+    cancel_job.assert_called_once()
+    assert cancel_job.call_args.args[1:] == ("job-1", True)
+    output = capsys.readouterr().out
+    assert "state: cancelling" in output
+    assert "cancelled_at: 2026-01-01T00:00:00Z" in output
+
+
 def test_passthrough_returns_subprocess_failure(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".rrun.toml").write_text(

@@ -6,7 +6,7 @@ import subprocess
 import sys
 
 from .config import CONFIG_FILE, ConfigError, load_config, sample_config
-from .remote import RemoteOutputError, fetch_status, stream_logs, submit_job
+from .remote import RemoteOutputError, cancel_job, fetch_status, stream_logs, submit_job
 from .sync import sync_project
 
 
@@ -44,6 +44,11 @@ def main(argv: list[str] | None = None) -> int:
         if parsed.subcommand == "logs":
             config = load_config(project_root)
             return stream_logs(config, parsed.job_id, parsed.follow)
+        if parsed.subcommand == "cancel":
+            config = load_config(project_root)
+            status = cancel_job(config, parsed.job_id, parsed.force)
+            _print_status(status)
+            return 0
     except ConfigError as exc:
         print(f"rrun: {exc}", file=sys.stderr)
         return 2
@@ -71,6 +76,10 @@ def _build_parser() -> argparse.ArgumentParser:
     logs = subparsers.add_parser("logs", help="show remote job logs")
     logs.add_argument("job_id")
     logs.add_argument("-f", "--follow", action="store_true")
+
+    cancel = subparsers.add_parser("cancel", help="cancel a remote job")
+    cancel.add_argument("job_id")
+    cancel.add_argument("--force", action="store_true", help="send KILL instead of TERM")
 
     return parser
 
@@ -143,13 +152,22 @@ commands:
   sync              sync the project to the remote workdir
   status <job_id>   show remote job status
   logs <job_id>     show remote job logs
+  cancel <job_id>   cancel a remote job
   -- <command...>   sync and submit a background remote command
 """
     )
 
 
 def _print_status(status: object) -> None:
-    for name in ("job_id", "state", "pid", "exit_code", "started_at", "ended_at"):
+    for name in (
+        "job_id",
+        "state",
+        "pid",
+        "exit_code",
+        "started_at",
+        "ended_at",
+        "cancelled_at",
+    ):
         value = getattr(status, name)
         if value is not None:
             print(f"{name}: {value}")

@@ -22,6 +22,7 @@ class JobStatus:
     exit_code: int | None = None
     started_at: str | None = None
     ended_at: str | None = None
+    cancelled_at: str | None = None
 
 
 def make_job_id() -> str:
@@ -49,6 +50,17 @@ def submit_job(config: Config, command: list[str]) -> str:
         stdout=subprocess.PIPE,
     )
     return job_id
+
+
+def cancel_job(config: Config, job_id: str, force: bool = False) -> JobStatus:
+    remote_script = build_cancel_script(config, job_id, force)
+    result = subprocess.run(
+        build_ssh_command(config, remote_script),
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+    )
+    return _status_from_data(job_id, _parse_status_json(result.stdout))
 
 
 def build_submit_script(config: Config, job_id: str, command: list[str]) -> str:
@@ -80,7 +92,7 @@ def build_submit_script(config: Config, job_id: str, command: list[str]) -> str:
             "RRUN_METADATA",
             f"date -u +%Y-%m-%dT%H:%M:%SZ > {shlex.quote(job_dir + '/started_at')}",
             (
-                f"nohup bash -lc {shlex.quote(_background_runner(job_dir))} "
+                f"nohup setsid bash -lc {shlex.quote(_background_runner(job_dir))} "
                 f"> {shlex.quote(job_dir + '/run.log')} 2>&1 < /dev/null &"
             ),
             f"echo $! > {shlex.quote(job_dir + '/pid')}",
@@ -97,6 +109,10 @@ def fetch_status(config: Config, job_id: str) -> JobStatus:
         stdout=subprocess.PIPE,
     )
     data = _parse_status_json(result.stdout)
+    return _status_from_data(job_id, data)
+
+
+def _status_from_data(job_id: str, data: dict[str, object]) -> JobStatus:
     return JobStatus(
         job_id=job_id,
         state=data["state"],
@@ -104,14 +120,57 @@ def fetch_status(config: Config, job_id: str) -> JobStatus:
         exit_code=data.get("exit_code"),
         started_at=data.get("started_at") or None,
         ended_at=data.get("ended_at") or None,
+        cancelled_at=data.get("cancelled_at") or None,
     )
 
 
 def build_status_script(config: Config, job_id: str) -> str:
     job_dir = shlex.quote(_job_dir(config, job_id))
+    return _status_script(job_dir)
+
+
+def build_cancel_script(config: Config, job_id: str, force: bool) -> str:
+    job_dir = shlex.quote(_job_dir(config, job_id))
+    signal = "KILL" if force else "TERM"
+    signal_q = shlex.quote(signal)
     return f"""
 set -e
 job_dir={job_dir}
+signal={signal_q}
+if [ ! -d "$job_dir" ]; then
+  printf '{{"state":"unknown"}}\\n'
+  exit 0
+fi
+if [ -f "$job_dir/exit_code" ]; then
+  {_status_script_body()}
+  exit 0
+fi
+if [ ! -f "$job_dir/pid" ]; then
+  printf '{{"state":"unknown"}}\\n'
+  exit 0
+fi
+pid="$(cat "$job_dir/pid")"
+if [ -z "$pid" ]; then
+  printf '{{"state":"unknown"}}\\n'
+  exit 0
+fi
+date -u +%Y-%m-%dT%H:%M:%SZ > "$job_dir/cancelled_at"
+printf '%s\\n' "$signal" > "$job_dir/cancel_signal"
+kill -s "$signal" -- "-$pid" >/dev/null 2>&1 || kill -s "$signal" "$pid" >/dev/null 2>&1 || true
+{_status_script_body()}
+"""
+
+
+def _status_script(job_dir: str) -> str:
+    return f"""
+set -e
+job_dir={job_dir}
+{_status_script_body()}
+"""
+
+
+def _status_script_body() -> str:
+    return """
 if [ ! -d "$job_dir" ]; then
   printf '{{"state":"unknown"}}\\n'
   exit 0
@@ -122,16 +181,20 @@ started_at=""
 if [ -f "$job_dir/started_at" ]; then started_at="$(cat "$job_dir/started_at")"; fi
 ended_at=""
 if [ -f "$job_dir/ended_at" ]; then ended_at="$(cat "$job_dir/ended_at")"; fi
+cancelled_at=""
+if [ -f "$job_dir/cancelled_at" ]; then cancelled_at="$(cat "$job_dir/cancelled_at")"; fi
 if [ -f "$job_dir/exit_code" ]; then
   exit_code="$(cat "$job_dir/exit_code")"
   if [ "$exit_code" = "0" ]; then state="succeeded"; else state="failed"; fi
-  printf '{{"state":"%s","pid":"%s","exit_code":%s,"started_at":"%s","ended_at":"%s"}}\\n' "$state" "$pid" "$exit_code" "$started_at" "$ended_at"
+  printf '{"state":"%s","pid":"%s","exit_code":%s,"started_at":"%s","ended_at":"%s"}\\n' "$state" "$pid" "$exit_code" "$started_at" "$ended_at"
   exit 0
 fi
 if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
-  printf '{{"state":"running","pid":"%s","started_at":"%s"}}\\n' "$pid" "$started_at"
+  if [ -n "$cancelled_at" ]; then state="cancelling"; else state="running"; fi
+  printf '{"state":"%s","pid":"%s","started_at":"%s","cancelled_at":"%s"}\\n' "$state" "$pid" "$started_at" "$cancelled_at"
 else
-  printf '{{"state":"unknown","pid":"%s","started_at":"%s"}}\\n' "$pid" "$started_at"
+  if [ -n "$cancelled_at" ]; then state="cancelled"; else state="unknown"; fi
+  printf '{"state":"%s","pid":"%s","started_at":"%s","cancelled_at":"%s"}\\n' "$state" "$pid" "$started_at" "$cancelled_at"
 fi
 """
 
