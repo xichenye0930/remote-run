@@ -16,6 +16,45 @@ def test_init_creates_config(tmp_path: Path, monkeypatch, capsys) -> None:
     assert "created" in capsys.readouterr().out
 
 
+def test_init_adds_config_to_existing_gitignore(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".gitignore").write_text(".venv/", encoding="utf-8")
+
+    exit_code = cli.main(["init"])
+
+    assert exit_code == 0
+    assert (tmp_path / ".gitignore").read_text(encoding="utf-8") == (
+        ".venv/\n.rrun.toml\n"
+    )
+    output = capsys.readouterr().out
+    assert "created .rrun.toml" in output
+    assert "added .rrun.toml to .gitignore" in output
+
+
+def test_init_does_not_duplicate_existing_gitignore_entry(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".gitignore").write_text(".rrun.toml\n", encoding="utf-8")
+
+    exit_code = cli.main(["init"])
+
+    assert exit_code == 0
+    assert (tmp_path / ".gitignore").read_text(encoding="utf-8") == ".rrun.toml\n"
+    assert "added .rrun.toml" not in capsys.readouterr().out
+
+
+def test_init_leaves_missing_gitignore_absent(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = cli.main(["init"])
+
+    assert exit_code == 0
+    assert not (tmp_path / ".gitignore").exists()
+
+
 def test_passthrough_syncs_then_submits(tmp_path: Path, monkeypatch, capsys) -> None:
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".rrun.toml").write_text(

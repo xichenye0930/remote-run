@@ -107,7 +107,28 @@ def _init(project_root: Path) -> int:
         return 1
     path.write_text(sample_config(), encoding="utf-8")
     print(f"created {CONFIG_FILE}")
+    if _add_config_to_gitignore(project_root):
+        print(f"added {CONFIG_FILE} to .gitignore")
     return 0
+
+
+def _add_config_to_gitignore(project_root: Path) -> bool:
+    gitignore = project_root / ".gitignore"
+    if not gitignore.exists():
+        return False
+
+    content = gitignore.read_text(encoding="utf-8")
+    entries = {
+        line.strip()
+        for line in content.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+    if CONFIG_FILE in entries:
+        return False
+
+    prefix = "" if not content or content.endswith("\n") else "\n"
+    gitignore.write_text(f"{content}{prefix}{CONFIG_FILE}\n", encoding="utf-8")
+    return True
 
 
 def _print_help() -> None:
