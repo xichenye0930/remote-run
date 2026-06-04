@@ -156,7 +156,10 @@ if [ -z "$pid" ]; then
 fi
 date -u +%Y-%m-%dT%H:%M:%SZ > "$job_dir/cancelled_at"
 printf '%s\\n' "$signal" > "$job_dir/cancel_signal"
-kill -s "$signal" -- "-$pid" >/dev/null 2>&1 || kill -s "$signal" "$pid" >/dev/null 2>&1 || true
+{_process_tree_functions()}
+rrun_kill_tree "$pid" "$signal" "$job_dir/children"
+sleep 1
+rrun_kill_tree "$pid" "$signal" "$job_dir/children"
 {_status_script_body()}
 """
 
@@ -170,9 +173,9 @@ job_dir={job_dir}
 
 
 def _status_script_body() -> str:
-    return """
+    return _known_children_status_functions() + """
 if [ ! -d "$job_dir" ]; then
-  printf '{{"state":"unknown"}}\\n'
+  printf '{"state":"unknown"}\\n'
   exit 0
 fi
 pid=""
@@ -183,6 +186,8 @@ ended_at=""
 if [ -f "$job_dir/ended_at" ]; then ended_at="$(cat "$job_dir/ended_at")"; fi
 cancelled_at=""
 if [ -f "$job_dir/cancelled_at" ]; then cancelled_at="$(cat "$job_dir/cancelled_at")"; fi
+live_children=""
+if [ -f "$job_dir/children" ]; then live_children="$(rrun_live_known_children "$job_dir/children")"; fi
 if [ -f "$job_dir/exit_code" ]; then
   exit_code="$(cat "$job_dir/exit_code")"
   if [ "$exit_code" = "0" ]; then state="succeeded"; else state="failed"; fi
@@ -193,9 +198,59 @@ if [ -n "$pid" ] && kill -0 "$pid" >/dev/null 2>&1; then
   if [ -n "$cancelled_at" ]; then state="cancelling"; else state="running"; fi
   printf '{"state":"%s","pid":"%s","started_at":"%s","cancelled_at":"%s"}\\n' "$state" "$pid" "$started_at" "$cancelled_at"
 else
-  if [ -n "$cancelled_at" ]; then state="cancelled"; else state="unknown"; fi
+  if [ -n "$cancelled_at" ] && [ -n "$live_children" ]; then state="cancelling";
+  elif [ -n "$cancelled_at" ]; then state="cancelled";
+  else state="unknown"; fi
   printf '{"state":"%s","pid":"%s","started_at":"%s","cancelled_at":"%s"}\\n' "$state" "$pid" "$started_at" "$cancelled_at"
 fi
+"""
+
+
+def _process_tree_functions() -> str:
+    return r"""
+rrun_descendants() {
+  root="$1"
+  queue="$root"
+  while [ -n "$queue" ]; do
+    next=""
+    for parent in $queue; do
+      children="$(pgrep -P "$parent" 2>/dev/null || true)"
+      for child in $children; do
+        printf '%s\n' "$child"
+        next="$next $child"
+      done
+    done
+    queue="$next"
+  done
+}
+
+rrun_kill_tree() {
+  root="$1"
+  signal="$2"
+  children_file="$3"
+  known=""
+  if [ -f "$children_file" ]; then known="$(cat "$children_file")"; fi
+  children="$(printf '%s\n%s\n' "$(rrun_descendants "$root" | awk 'NF' || true)" "$known" | awk 'NF' | sort -u || true)"
+  printf '%s\n' "$children" | awk 'NF' > "$children_file"
+  printf '%s\n' "$children" | awk 'NF' | tac 2>/dev/null | while read -r child; do
+    kill -s "$signal" "$child" >/dev/null 2>&1 || true
+  done
+  kill -s "$signal" -- "-$root" >/dev/null 2>&1 || true
+  kill -s "$signal" "$root" >/dev/null 2>&1 || true
+}
+"""
+
+
+def _known_children_status_functions() -> str:
+    return r"""
+rrun_live_known_children() {
+  children_file="$1"
+  while read -r child; do
+    if [ -n "$child" ] && kill -0 "$child" >/dev/null 2>&1; then
+      printf '%s\n' "$child"
+    fi
+  done < "$children_file"
+}
 """
 
 

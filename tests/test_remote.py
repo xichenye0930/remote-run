@@ -52,6 +52,13 @@ def test_build_cancel_script_targets_process_group_by_default() -> None:
     script = build_cancel_script(config, "job-1", force=False)
 
     assert "signal=TERM" in script
+    assert "pgrep -P" in script
+    assert "rrun_descendants" in script
+    assert 'rrun_kill_tree "$pid" "$signal" "$job_dir/children"' in script
+    assert 'known="$(cat "$children_file")"' in script
+    assert "sleep 1" in script
+    assert "sort -u" in script
+    assert "tac" in script
     assert 'kill -s "$signal" -- "-$pid"' in script
     assert 'kill -s "$signal" "$pid"' in script
     assert 'cancel_signal"' in script
@@ -135,6 +142,16 @@ def test_fetch_status_parses_cancelled_state(monkeypatch) -> None:
 
     assert status.state == "cancelled"
     assert status.cancelled_at == "2026-01-01T00:00:00Z"
+
+
+def test_status_script_checks_recorded_children_after_cancel() -> None:
+    config = Config(target="user@gpu", remote_workdir="/remote/project")
+
+    script = build_cancel_script(config, "job-1", force=False)
+
+    assert "rrun_live_known_children" in script
+    assert 'live_children="$(rrun_live_known_children "$job_dir/children")"' in script
+    assert '[ -n "$cancelled_at" ] && [ -n "$live_children" ]' in script
 
 
 def test_fetch_status_parses_json_after_noisy_output(monkeypatch) -> None:

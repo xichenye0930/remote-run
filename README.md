@@ -96,6 +96,10 @@ Cancel a running remote job:
 rrun cancel <job_id>
 ```
 
+Cancel targets the remote process tree, so multi-process launchers such as
+`accelerate` should have their worker processes stopped as well. Logs and job
+metadata remain under `<remote_workdir>/.rrun/jobs/<job_id>/`.
+
 If the job does not stop gracefully, force it:
 
 ```bash
