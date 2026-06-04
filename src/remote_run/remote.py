@@ -255,11 +255,31 @@ rrun_live_known_children() {
 
 
 def stream_logs(config: Config, job_id: str, follow: bool) -> int:
-    log_path = shlex.quote(_job_dir(config, job_id) + "/run.log")
-    tail_args = "-n +1 -f" if follow else "-n +1"
-    remote_script = f"tail {tail_args} {log_path}"
+    remote_script = build_logs_script(config, job_id, follow)
     process = subprocess.Popen(build_ssh_command(config, remote_script))
     return process.wait()
+
+
+def build_logs_script(config: Config, job_id: str, follow: bool) -> str:
+    job_dir = shlex.quote(_job_dir(config, job_id))
+    log_path = shlex.quote(_job_dir(config, job_id) + "/run.log")
+    unknown_job = shlex.quote(f"rrun: unknown job {job_id}")
+    missing_log = shlex.quote("rrun: log is not available yet")
+    command = f"tail -n +1 -F {log_path}" if follow else f"cat {log_path}"
+    return f"""
+set -e
+job_dir={job_dir}
+log_path={log_path}
+if [ ! -d "$job_dir" ]; then
+  printf '%s\\n' {unknown_job} >&2
+  exit 2
+fi
+if [ ! -f "$log_path" ]; then
+  printf '%s\\n' {missing_log} >&2
+  exit 2
+fi
+{command}
+"""
 
 
 def _parse_status_json(stdout: str) -> dict[str, object]:

@@ -6,11 +6,13 @@ from remote_run.config import Config
 from remote_run.remote import (
     RemoteOutputError,
     build_cancel_script,
+    build_logs_script,
     build_ssh_command,
     build_submit_script,
     cancel_job,
     fetch_status,
     _parse_status_json,
+    stream_logs,
     submit_job,
 )
 
@@ -152,6 +154,43 @@ def test_status_script_checks_recorded_children_after_cancel() -> None:
     assert "rrun_live_known_children" in script
     assert 'live_children="$(rrun_live_known_children "$job_dir/children")"' in script
     assert '[ -n "$cancelled_at" ] && [ -n "$live_children" ]' in script
+
+
+def test_build_logs_script_shows_full_log_with_cat() -> None:
+    config = Config(target="user@gpu", remote_workdir="/remote/project")
+
+    script = build_logs_script(config, "job-1", follow=False)
+
+    assert "cat /remote/project/.rrun/jobs/job-1/run.log" in script
+    assert "tail " not in script
+    assert '[ ! -d "$job_dir" ]' in script
+    assert '[ ! -f "$log_path" ]' in script
+    assert "rrun: unknown job job-1" in script
+    assert "rrun: log is not available yet" in script
+
+
+def test_build_logs_script_follows_full_log_with_tail_f() -> None:
+    config = Config(target="user@gpu", remote_workdir="/remote/project")
+
+    script = build_logs_script(config, "job-1", follow=True)
+
+    assert "tail -n +1 -F /remote/project/.rrun/jobs/job-1/run.log" in script
+
+
+def test_stream_logs_invokes_ssh_and_returns_exit_code(monkeypatch) -> None:
+    config = Config(target="user@gpu", remote_workdir="/remote/project")
+    process = Mock()
+    process.wait.return_value = 7
+    popen = Mock(return_value=process)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+
+    exit_code = stream_logs(config, "job-1", follow=False)
+
+    assert exit_code == 7
+    popen.assert_called_once()
+    command = popen.call_args.args[0]
+    assert command[:4] == ["ssh", "-o", "LogLevel=ERROR", "user@gpu"]
+    assert "cat /remote/project/.rrun/jobs/job-1/run.log" in command[-1]
 
 
 def test_fetch_status_parses_json_after_noisy_output(monkeypatch) -> None:

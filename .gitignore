@@ -1,1 +1,5 @@
 .codegraph/
+
+__pycache__/
+
+remote_run.egg-info/

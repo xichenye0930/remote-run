@@ -90,6 +90,9 @@ rrun logs <job_id>
 rrun logs <job_id> -f
 ```
 
+`rrun logs <job_id>` prints the full log from the beginning. Use `-f` to print
+the full log first and then follow new output.
+
 Cancel a running remote job:
 
 ```bash
